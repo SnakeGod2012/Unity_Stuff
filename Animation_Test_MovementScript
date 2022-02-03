@@ -1,0 +1,77 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CC_Movement : MonoBehaviour
+{
+    [SerializeField] float WalkSpeed = 2f;
+    [SerializeField] float SprintSpeed = 9f;
+    [SerializeField] float WalkSmoothing;
+    [SerializeField] float JumpPower = 5f;
+    [SerializeField] CC_Camera CamScript;
+    Rigidbody RB;
+    Animator Anim;
+    public float Horiz;
+    public float Vert;
+    bool Sprinting;
+    float CurrentSpeed;
+    bool IsGrounded = true;
+
+
+    void Start()
+    {
+        RB = gameObject.GetComponent<Rigidbody>();
+        Anim = gameObject.GetComponent<Animator>();
+        CurrentSpeed = WalkSpeed;
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        //movement
+        Horiz = Input.GetAxis("Horizontal");
+        Vert = Input.GetAxis("Vertical");
+        Vector3 MovementDirection = new Vector3(Horiz, 0, Vert);
+        float InputMagnitude = Mathf.Clamp01(MovementDirection.magnitude);
+        float Speed;
+        Speed = InputMagnitude * CurrentSpeed;
+        MovementDirection = Quaternion.AngleAxis(transform.rotation.eulerAngles.y, Vector3.up) * MovementDirection;
+        MovementDirection.Normalize();
+        transform.position += (MovementDirection * Speed) * Time.deltaTime;
+
+        //Animation
+        if (Horiz != 0 || Vert != 0)
+        {
+            Anim.SetBool("Walking", true);
+            if (Input.GetKey(KeyCode.LeftShift)) { Anim.SetBool("Sprinting", true); Sprinting = true; CamScript.FOV = 75; } else { Anim.SetBool("Sprinting", false); Sprinting = false; CamScript.FOV = 80; }
+        }
+        else //not moving
+        {
+            Anim.SetBool("Walking", false);
+        }
+
+        //Rotation Input
+        if (Horiz < 0 && Vert != 0) { CamScript.TurnRotation = 45; }
+
+        if (Input.GetKeyDown(KeyCode.C)) { Anim.SetTrigger("Dance"); CamScript.RotatePlayer = false; }
+        //variable control
+        if (Input.GetKey(KeyCode.LeftShift))
+        {
+           CurrentSpeed = Mathf.Lerp(CurrentSpeed, SprintSpeed, WalkSmoothing);
+        }
+        else
+        {
+            CurrentSpeed = Mathf.Lerp(CurrentSpeed, WalkSpeed, WalkSmoothing);
+        }
+
+        //Jump
+        if (Input.GetKeyDown(KeyCode.Space) && IsGrounded)
+        {
+            RB.AddForce(0, JumpPower, 0);
+            Anim.SetTrigger("Jump");
+        }
+
+        Anim.SetFloat("WalkingDirection", Vert);
+        Anim.SetBool("Falling", !IsGrounded);
+    }
+}

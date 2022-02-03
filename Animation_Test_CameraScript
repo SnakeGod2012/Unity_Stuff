@@ -1,0 +1,55 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CC_Camera : MonoBehaviour
+{
+    [SerializeField] Transform CameraAnimFocus;
+    public float rotationSpeed;
+    [Range(0, 0.05f)] 
+    public float FOVSmoothing;
+    public Transform Target, Player;
+    public Vector3 Offset;
+    public bool RotatePlayer = true;
+    public float FOV = 70;
+    public float TurnRotation;
+    float MouseX, MouseY;
+    
+    void Start()
+    {
+        
+    }
+   
+    void LateUpdate()
+    {
+        if (RotatePlayer)
+        {
+            MouseX += Input.GetAxis("Mouse X") * rotationSpeed;
+            MouseY -= Input.GetAxis("Mouse Y") * rotationSpeed;
+            MouseY = Mathf.Clamp(MouseY, -25, 50);
+
+            Target.transform.position = Player.transform.position;
+
+            if (RotatePlayer) { Player.GetComponent<Rigidbody>().MoveRotation(Quaternion.Euler(0, MouseX + TurnRotation, 0)); }
+            Target.rotation = Quaternion.Euler(MouseY, Target.rotation.eulerAngles.y + TurnRotation, Target.rotation.eulerAngles.z);
+
+            Target.transform.position += Target.transform.forward * Offset.z;
+            Target.transform.position += Target.transform.up * Offset.y;
+            Target.transform.position += Target.transform.right * Offset.x;
+        }
+        else
+        {
+            Target.transform.localPosition = new Vector3(0, 2, 3);
+            Target.transform.LookAt(CameraAnimFocus);
+        }
+        transform.GetComponent<Camera>().fieldOfView = Mathf.Lerp(transform.GetComponent<Camera>().fieldOfView, FOV, FOVSmoothing);
+    }
+
+    private void OnApplicationFocus(bool focus)
+    {
+        if (focus)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+        }
+    }
+}
