@@ -1,0 +1,352 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class Gun_Controller : MonoBehaviour
+{
+    public GameObject Main_Camera;
+    public GameObject AmmoGui;
+    public GameObject MuzzleFlash;
+    public GameObject Mag;
+    public GameObject Shell;
+    public GameObject BulletHole;
+    [SerializeField] public GameObject[] Crosshair_Elements;
+    //crosshair references
+    GameObject TopCross;
+    GameObject BottomCross;
+    GameObject LeftCross;
+    GameObject RightCross;
+
+    public float XOffset;
+    public float YOffset;
+    public float ZOffset;
+
+    public float AimXOffset;
+    public float AimYOffset;
+    public float AimZOffset;
+
+    public float ReloadTime;
+    public float Reload_BoltTime;
+
+    //var
+    public int Ammo;
+    public int ClipSize;
+    public float RecoilRate;
+    public float Crosshair_Gap;
+    public float Crosshair_Size;
+    float Crosshair_Recoil_Gap = 0;
+    float FireRate = 750;
+    float AimRate = 0.25f;
+    float HipFireFov = 65f;
+    float AimFov = 45f;
+
+    //sounds
+    public AudioClip MagIn;
+    public AudioClip MagOut;
+    public AudioClip Bolt;
+    public AudioClip Shot;
+    public AudioClip Click;
+
+    //debounces
+    bool ReadyToFire = true;
+    bool Aiming = false;
+    bool Reloading = false;
+    bool Inspecting = false;
+
+    int CurrentClip;
+    float CurrentFov;
+
+    float CurrentXOffset;
+    float CurrentYOffset;
+    float CurrentZOffset;
+
+    float CrosshairVisibilityFloat = 255;
+
+    //roots
+    GameObject Arms;
+    Animator Anim;
+    AudioSource AS;
+
+    void Start()
+    {
+        Arms = gameObject;
+        Anim = Arms.GetComponent<Animator>();
+        FireRate = FireRate/60; FireRate = 1/FireRate; //firerate turned into how many bullets per second fire
+        AS = Arms.GetComponent<AudioSource>();
+        CurrentFov = HipFireFov;
+        CurrentClip = ClipSize;//ammo set
+        Ammo -= CurrentClip; if (Ammo < 0) Ammo = 0;
+        //anchor current offsets
+        CurrentXOffset = XOffset;
+        CurrentYOffset = YOffset;
+        CurrentZOffset = ZOffset;
+        //start functions
+        UpdateAmmo();
+        //crosshairset
+        TopCross = Crosshair_Elements[0];
+        BottomCross = Crosshair_Elements[1];
+        LeftCross = Crosshair_Elements[2];
+        RightCross = Crosshair_Elements[3];
+    }
+    //gui
+    void UpdateAmmo()
+    {
+        AmmoGui.GetComponent<Text>().text = CurrentClip + "/" + Ammo;
+    }
+    //sound controller
+    void MagInSound()
+    {
+        AS.Stop();
+        AS.clip = MagIn;
+        AS.Play();
+    }
+
+    void MagOutSound()
+    {
+        AS.Stop();
+        AS.clip = MagOut;
+        AS.Play();
+    }
+
+    void BoltSound()
+    {
+        AS.Stop();
+        AS.clip = Bolt;
+        AS.Play();
+    }
+
+    void GunFireSound()
+    {
+        AS.Stop();
+        AS.clip = Shot;
+        AS.Play();
+    }
+
+    void ClickSound()
+    {
+        //AS.Stop();
+        //AS.clip = Click;
+        //AS.Play();
+    }
+
+    //external functions
+    float LimitAngle(float Angle)
+    {
+        Angle %= 360;
+        if (Angle < 180) return Angle - 360;
+        return Angle;
+    }
+
+    void AnchorArms()
+    {
+        Arms.transform.position = Main_Camera.transform.TransformPoint(CurrentXOffset, CurrentYOffset, CurrentZOffset);
+        Vector3 NewRotation = new Vector3(LimitAngle(Main_Camera.transform.eulerAngles.x), LimitAngle(Main_Camera.transform.eulerAngles.y), LimitAngle(Main_Camera.transform.eulerAngles.z));
+        Arms.transform.eulerAngles = NewRotation;
+    }
+
+    void FOVControl()
+    {
+        if (Aiming) CurrentFov = Mathf.Lerp(CurrentFov, AimFov, AimRate); else CurrentFov = Mathf.Lerp(CurrentFov, HipFireFov, AimRate);
+        gameObject.transform.parent.GetComponent<Camera>().fieldOfView = CurrentFov;
+    }
+
+    void CrosshairVisibility()
+    {
+        if (Aiming)
+        {
+            CrosshairVisibilityFloat = Mathf.Lerp(CrosshairVisibilityFloat, 0, .5f);
+        }
+        else
+        {
+            CrosshairVisibilityFloat = Mathf.Lerp(CrosshairVisibilityFloat, 1, .25f);
+        }
+        TopCross.GetComponent<Image>().color = new Color(255, 255, 255, CrosshairVisibilityFloat);
+        BottomCross.GetComponent<Image>().color = new Color(255, 255, 255, CrosshairVisibilityFloat);
+        LeftCross.GetComponent<Image>().color = new Color(255, 255, 255, CrosshairVisibilityFloat);
+        RightCross.GetComponent<Image>().color = new Color(255, 255, 255, CrosshairVisibilityFloat);
+    }
+
+    void CrosshairScaling()
+    {
+        if (Player_Movement.Moving)
+        {
+            Crosshair_Gap = Mathf.Lerp(Crosshair_Recoil_Gap, 2, 0.25f);
+        }
+        else
+        {
+            Crosshair_Gap = Mathf.Lerp(Crosshair_Recoil_Gap, -4, 0.25f);
+        }
+        TopCross.transform.localPosition = new Vector3(0, Crosshair_Size + Crosshair_Gap + Crosshair_Recoil_Gap);
+        BottomCross.transform.localPosition = new Vector3(0, -(Crosshair_Size + Crosshair_Gap + Crosshair_Recoil_Gap));
+        LeftCross.transform.localPosition = new Vector3(-(Crosshair_Size + Crosshair_Gap + Crosshair_Recoil_Gap), 0);
+        RightCross.transform.localPosition = new Vector3(Crosshair_Size + Crosshair_Gap + Crosshair_Recoil_Gap, 0 );
+    }
+
+    //Gun Controls
+    IEnumerator Reload()
+    {
+        if (Reloading == false && ReadyToFire == true && (CurrentClip != ClipSize) && Ammo > 0 && (CurrentClip + Ammo) != 0)
+        {
+            print("Reloading");
+            Aiming = false;
+            Reloading = true;
+            Inspecting = false;
+            if (CurrentClip > 0)
+            {
+                Anim.SetTrigger("Reload");
+                yield return new WaitForSeconds(ReloadTime);
+            }
+            else
+            {
+                Anim.SetTrigger("Reload_Bolt");
+                yield return new WaitForSeconds(Reload_BoltTime);
+            }
+            int C = CurrentClip;
+            int Total = CurrentClip + Ammo;
+            if (Total >= ClipSize)
+            {
+                Ammo = Total - ClipSize;
+                CurrentClip = ClipSize;
+            }
+            else//means there are less bullets than mag has
+            {
+                CurrentClip = Total; Ammo = 0;
+            }
+            UpdateAmmo();
+            Reloading = false;
+        }
+    }
+
+    void EjectShell()
+    {
+        GameObject shellCopy = Instantiate(Shell, Shell.transform.position, Shell.transform.rotation);
+        //shellCopy.AddComponent<CapsuleCollider>(); 
+        shellCopy.AddComponent<Rigidbody>();
+        shellCopy.transform.localScale = Shell.transform.lossyScale;
+        Rigidbody SRB = shellCopy.GetComponent<Rigidbody>();
+        shellCopy.SetActive(true);
+        SRB.velocity = Main_Camera.transform.right * 2;
+    }
+
+    void DropMag()
+    {
+        GameObject MagCopy = Instantiate(Mag, Mag.transform.position, Mag.transform.rotation);
+        MagCopy.AddComponent<BoxCollider>(); MagCopy.AddComponent<Rigidbody>();
+        MagCopy.transform.localScale = Mag.transform.lossyScale;
+        MagCopy.layer = 0;
+    }
+
+    void Recoil()
+    {
+        Main_Camera.GetComponent<Camera_Controller>().Recoil(RecoilRate);
+        Crosshair_Recoil_Gap += 5f;
+    }
+
+    IEnumerator Inspect()
+    {
+        if (!Inspecting && !Reloading)
+        {
+            Inspecting = true;
+            Anim.SetTrigger("Inspect");
+            yield return new WaitForSeconds(2.35f);
+            Inspecting = false;
+        }
+    }
+
+    Vector3 TranslateEuler(Vector3 Input)
+    {
+        float TranslateNeg(float num)
+        {
+            float rounded = (Mathf.Round(num));
+            return rounded;
+        }
+        float x = LimitAngle(TranslateNeg(Input.x/90)*90);
+        float y = LimitAngle(TranslateNeg(Input.y / 90) * 90);
+        float z = LimitAngle(TranslateNeg(Input.z / 90) * 90);
+        Vector3 NewVector = new Vector3(x, y, LimitAngle(z + Random.Range(0, 360)));
+        print(NewVector.z);
+        return NewVector;
+    }
+
+    void CastBulletMark()
+    {
+        RaycastHit Hit;
+        if (Physics.Raycast(Main_Camera.transform.position, Main_Camera.transform.forward, out Hit))
+        {
+            GameObject BulletCopy = Instantiate(BulletHole, Hit.point, Main_Camera.transform.rotation);
+            BulletCopy.transform.eulerAngles = TranslateEuler(Main_Camera.transform.eulerAngles);
+            BulletCopy.transform.localScale = BulletHole.transform.lossyScale;
+            BulletCopy.transform.parent = Hit.transform;
+        }
+    }
+
+    void Shoot()
+    { 
+        Anim.SetTrigger("Recoil");
+        Recoil();
+        MuzzleFlash.GetComponent<ParticleSystem>().Play();
+        GunFireSound();
+        CurrentClip -= 1;
+        UpdateAmmo();
+        CastBulletMark();
+        EjectShell();
+        Inspecting = false;
+    }
+
+    IEnumerator ProcessFire()//processes the shoot function with debounces
+    {
+        if (ReadyToFire && !Reloading && CurrentClip > 0) //add debounces to shooting
+        {
+            ReadyToFire = false;
+            Shoot();
+            yield return new WaitForSeconds(FireRate);
+            ReadyToFire = true;
+        }else if (CurrentClip == 0)
+        {
+            ClickSound();
+        }
+    }
+
+    void ControlAim()
+    {
+        if (Aiming)
+        {
+            CurrentXOffset = Mathf.Lerp(CurrentXOffset, AimXOffset, AimRate);
+            CurrentYOffset = Mathf.Lerp(CurrentYOffset, AimYOffset, AimRate);
+            CurrentZOffset = Mathf.Lerp(CurrentZOffset, AimZOffset, AimRate);
+        }
+        else
+        {
+            CurrentXOffset = Mathf.Lerp(CurrentXOffset, XOffset, AimRate);
+            CurrentYOffset = Mathf.Lerp(CurrentYOffset, YOffset, AimRate);
+            CurrentZOffset = Mathf.Lerp(CurrentZOffset, ZOffset, AimRate);
+        }
+    }
+
+    void AimIn()
+    {
+        if (!Reloading) Aiming = true;
+    }
+
+    void LateUpdate()
+    {
+        //input
+        if (Input.GetMouseButton(0)) StartCoroutine("ProcessFire"); //click to shoot
+        if (Input.GetMouseButton(1)) AimIn(); else Aiming = false;
+        //|Reload input
+        if (Input.GetKey(KeyCode.R)) StartCoroutine("Reload");
+        //|Inspect input
+        if (Input.GetKey(KeyCode.F)) StartCoroutine("Inspect");
+        //animation
+        Anim.SetBool("Walking", Player_Movement.Moving);
+        Anim.SetBool("Sprinting", Player_Movement.Sprinting);
+        //functions
+        ControlAim();
+        FOVControl();
+        AnchorArms();//anchor arms
+        CrosshairVisibility();
+        CrosshairScaling();
+        Crosshair_Recoil_Gap = Mathf.Lerp(Crosshair_Recoil_Gap, 0, 0.25f);
+    }
+}
