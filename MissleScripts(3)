@@ -1,0 +1,202 @@
+//[[Camera]]//
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Camera_Script : MonoBehaviour
+{
+    [SerializeField] float ZoomOutLevel;
+    [SerializeField] float FocusLevel;
+    [SerializeField] float UnfocusLevel;
+    [SerializeField] float LerpSmoothing = 0.1f;
+    [SerializeField] Transform StartingAnchorPoint;
+    [SerializeField] Transform UnFocusPoint;
+    static public GameObject FocusObject;
+    Camera Cam;
+    void Start()
+    {
+        Cam = GetComponent<Camera>();
+    }
+
+    void LerpPos(Vector3 Target, float OrthTarget)
+    {
+        Cam.transform.position = Vector3.Lerp(Cam.transform.position + new Vector3(0, 0, -10), Target, LerpSmoothing);
+        Cam.orthographicSize = Mathf.Lerp(Cam.orthographicSize, OrthTarget, LerpSmoothing);
+    }
+
+    
+    void FixedUpdate()
+    {
+        if (FocusObject)
+        {
+            LerpPos(FocusObject.transform.position, FocusLevel);
+        }
+        else
+        {
+            if (Cannon_Controller.Launched)
+            {
+                LerpPos(UnFocusPoint.transform.position, UnfocusLevel);
+            }
+            else
+            {
+                //not launched not focused so anchor
+                transform.position = StartingAnchorPoint.position;
+                Cam.orthographicSize = ZoomOutLevel;
+            }
+        }
+        if (Input.GetKey(KeyCode.F)) { SceneManager.LoadScene(0); }
+    }
+}
+
+//[[Bomb Projectile Script]]//
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Bomb_Projectile : MonoBehaviour
+{
+    public float ExplosionRange = 20f;
+    public float BlastPower = 50f;
+    [SerializeField] GameObject Particle;
+    GameObject Buildings;
+    GameObject StickFigures;
+    int maxstep = 30;
+    int stepcount;
+    bool red = true;
+    Rigidbody2D RB;
+    void Start()
+    {
+        RB = GetComponent<Rigidbody2D>();
+        Buildings = GameObject.Find("Buildings");
+        StickFigures = GameObject.Find("StickFigures");
+    }
+
+    void Update()
+    {
+        Vector2 Origin = transform.position;
+        Vector2 Target = (Vector2)transform.position + RB.velocity;
+        float Angle = Mathf.Atan2(Target.y, Origin.x) * Mathf.Rad2Deg;
+        transform.rotation = Quaternion.Euler(0, 0, Angle);
+        stepcount += 1; if (stepcount == maxstep) { stepcount = 0; red = !red; }
+        if (red) { GetComponent<SpriteRenderer>().color = new Color(255,0,0,255); } else { GetComponent<SpriteRenderer>().color = new Color(0, 0, 0, 255); }
+    }
+
+    void FlingProjectile(GameObject Child)
+    {
+        Vector2 Start = transform.position;
+        Vector2 Contact = Child.transform.position;
+        Vector2 Direction = -(Start - Contact).normalized;
+        if ((Start - Contact).magnitude < ExplosionRange)
+        {
+            //can blast
+            float Range = ((Start - Contact).magnitude / ExplosionRange);
+            Vector2 Force = (Direction * Range) * (Range * BlastPower);
+            Child.GetComponent<Rigidbody2D>().velocity = Force;
+        }
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        Debug.Log("Bomb Hit");
+        Particle.GetComponent<ParticleSystem>().Play();
+        GetComponent<Rigidbody2D>().simulated = false;
+        GetComponent<SpriteRenderer>().enabled = false;
+        Camera_Script.FocusObject = null;
+        //find objects in range
+        for (int i = 0; i < Buildings.transform.childCount; i++)
+        {
+            GameObject Child = Buildings.transform.GetChild(i).gameObject;
+            FlingProjectile(Child);
+        }
+        for (int i = 0; i < StickFigures.transform.childCount; i++)
+        {
+            GameObject Child = StickFigures.transform.GetChild(i).gameObject;
+            GameObject Torso = null;
+            for (int iv = 0; i < Child.transform.childCount; i++) { GameObject Item = Child.transform.GetChild(iv).gameObject; if (Item.name == "Body") { Torso = Item; break; } }
+            FlingProjectile(Torso);
+        }
+    }
+}
+//[[Cannon Controller]]//
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Cannon_Controller : MonoBehaviour
+{
+    [SerializeField] GameObject Bomb;
+    [SerializeField] GameObject Barrel;
+    [SerializeField] Transform LaunchStart;
+    [SerializeField] GameObject PointMarker;
+    [SerializeField] float FirePower = 5f;
+    [SerializeField] float RotSpeed;
+    List<GameObject> Points;
+    float MaxRot = 70f;
+    float MinRot = 40f;
+    float CurrentRot;
+    float RotDirection = 1;
+    static public bool Launched;
+    void Start()
+    {
+        CurrentRot = MinRot;
+    }
+
+    void Rotate_Cannon()
+    {
+        CurrentRot += RotSpeed * RotDirection;
+        if (CurrentRot >= MaxRot){ RotDirection = -RotDirection; }
+        if (CurrentRot <= MinRot) { RotDirection = -RotDirection; }
+        Barrel.transform.position = gameObject.transform.position;
+        Barrel.transform.rotation = Quaternion.Euler(new Vector3(0, 0, -CurrentRot));
+        Barrel.transform.position += Barrel.transform.up * (Barrel.transform.lossyScale.y/2);
+    }
+
+    Vector2 Get_Point_Location(float T)
+    {
+        Vector2 Direction = (LaunchStart.transform.up);
+        Vector2 PointPosition = (Vector2)LaunchStart.transform.position + (Direction.normalized * FirePower * T) + 0.5f * Physics2D.gravity * (T * T);
+        return PointPosition;
+    }
+
+    void Point_Handler()
+    {
+        if (Points != null && Points.Count > 0 && !Launched)
+        {
+            for (int i = 0; i < Points.Count; i++) { Destroy(Points[i]); }
+        }
+        else if (Points != null && Points.Count > 0)
+        {
+            for (int i = 0; i < Points.Count; i++) { Points[i].gameObject.GetComponent<SpriteRenderer>().color = new Color32(255,255,255,100); }
+            //ghost markers
+        }
+        Points = new List<GameObject>();
+
+        if (!Launched) //dont show after launched
+        for (int i = 0; i < 100; i++)
+        {
+            Vector2 Pos = Get_Point_Location(i * 0.1f);
+            if (Pos.y < -5f) { break; }
+            GameObject Point = Instantiate(PointMarker);
+            Point.transform.position = Pos;
+            Points.Add(Point);
+        }
+    }
+
+    void Update()
+    {
+        if (!Launched) { Rotate_Cannon(); }
+        if (Input.GetKey(KeyCode.Space))
+        {
+            if (Launched == false)
+            {
+                Launched = true;
+                //kills cannon script
+                GameObject NewBomb = Instantiate<GameObject>(Bomb);
+                NewBomb.transform.position = LaunchStart.position;
+                NewBomb.GetComponent<Rigidbody2D>().velocity = Barrel.transform.up * FirePower;
+                Camera_Script.FocusObject = NewBomb;
+            }
+        }
+        Point_Handler(); //will cycle and only set points when not launched but cleans up after launch
+    }
+}
+//[[end]]//
